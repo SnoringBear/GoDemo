@@ -8,6 +8,15 @@
 *.so
 *.dylib
 
+### IntelliJ IDEA ###
+.idea/modules.xml
+.idea/jarRepositories.xml
+.idea/compiler.xml
+.idea/libraries/
+*.iws
+*.iml
+*.ipr
+
 # Test binary, built with `go test -c`
 *.test
 
