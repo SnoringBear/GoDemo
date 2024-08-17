@@ -1,4 +1,4 @@
-package _range
+package collection
 
 import (
 	"fmt"
