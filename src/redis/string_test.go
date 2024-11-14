@@ -26,7 +26,12 @@ func TestString01(t *testing.T) {
 	stringKey := "stringKey"
 	rdb.Del(ctx, stringKey)
 
-	rdb.Set(ctx, stringKey, "hello world", 0).Result()
+	rdb.Set(
+		ctx,
+		stringKey,
+		"hello world",
+		0,
+	).Result()
 
 	// 关闭 Redis 连接
 	err = rdb.Close()
