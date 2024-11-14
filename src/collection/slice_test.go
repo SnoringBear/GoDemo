@@ -21,3 +21,9 @@ func TestSlice02(t *testing.T) {
 	a = append(a, 1)
 	fmt.Println(a)
 }
+
+func TestSlice03(t *testing.T) {
+	slice1 := []int{1, 2, 3, 4, 5}
+	slice2 := slice1[:2:4]
+	fmt.Println(slice2)
+}
