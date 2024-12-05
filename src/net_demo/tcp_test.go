@@ -24,7 +24,13 @@ func TestTCP01(t *testing.T) {
 		fmt.Println("Error dialing:", err)
 		os.Exit(1)
 	}
-	defer conn.Close() // 连接结束时关闭
+
+	defer func(conn *net.TCPConn) {
+		err := conn.Close()
+		if err != nil {
+			os.Exit(1)
+		}
+	}(conn) // 连接结束时关闭
 
 	// 向服务器发送数据
 	message := "send message!"
