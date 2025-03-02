@@ -16,3 +16,12 @@ func TestFileExist01(t *testing.T) {
 	}
 	log.Info().Msgf("fileInfo:%v", fileInfo)
 }
+
+func TestFile02(t *testing.T) {
+	file, err := os.Open("file.md")
+	if err != nil {
+		log.Error().Msgf("err:%v", err)
+	}
+	defer file.Close()
+	log.Info().Msgf("file:%v", file)
+}
