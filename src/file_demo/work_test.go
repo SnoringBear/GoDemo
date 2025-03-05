@@ -15,15 +15,17 @@ const (
 	DataDir      = "./data"     // 源文件夹
 	TempDir      = "./temp"     // 临时文件夹
 	MergeFile    = "result.txt" // 合并后文件
-	GoRoutineNum = 6            //  限制读取文件的携程数量，防止短时间加载大量文件内容导致内存溢出
+	GoRoutineNum = 6            // 限制读取文件的携程数量，防止短时间加载大量文件内容导致内存溢出
 )
 
 var (
-	keySetCh = make(chan []string, GoRoutineNum)
+	keySlice = make([]string, 0)
 	wg       sync.WaitGroup
+	mu       sync.Mutex
+	fileMu   sync.Mutex
 )
 
-func TestFileMerge(t *testing.T) {
+func TestFile05(t *testing.T) {
 	files, err := os.ReadDir(DataDir)
 	if err != nil {
 		log.Fatal(err)
@@ -36,15 +38,18 @@ func TestFileMerge(t *testing.T) {
 	defer os.RemoveAll(TempDir)
 
 	fileCh := make(chan string, len(files))
+	defer close(fileCh)
+
 	for _, file := range files {
 		if file.IsDir() {
 			continue
 		}
 		fileCh <- filepath.Join(DataDir, file.Name())
 	}
+
 	for i := 0; i < GoRoutineNum; i++ {
 		wg.Add(1)
-		go readFile(fileCh)
+		go rangFile(fileCh)
 	}
 
 	wg.Wait()
@@ -55,8 +60,7 @@ func TestFileMerge(t *testing.T) {
 	}
 	defer resultFile.Close()
 
-	strings := <-keySetCh
-	keys := unique(strings)
+	keys := unique(keySlice)
 	sort.Strings(keys)
 
 	for _, key := range keys {
@@ -72,46 +76,69 @@ func TestFileMerge(t *testing.T) {
 	}
 }
 
-func readFile(fileCh chan string) {
+// rangFile 遍历文件
+func rangFile(fileCh chan string) {
 	defer wg.Done()
-	tempkeys := make([]string, 0)
-	for filePath := range fileCh {
-		file, err := os.Open(filePath)
-		if err != nil {
-			log.Printf("打开文件错误:%v", err)
-		}
-		defer file.Close()
-		scanner := bufio.NewScanner(file)
-		fileWriters := make(map[string]*bufio.Writer)
-		files := make([]*os.File, 0)
-		for scanner.Scan() {
-			line := scanner.Text()
-			key := line[:3]
-			tempkeys = append(tempkeys, key)
-			tempFile := filepath.Join(TempDir, key+".txt")
-			if _, ok := fileWriters[tempFile]; !ok {
-				f, err := os.Create(tempFile)
-				if err != nil {
-					continue
-				}
-				files = append(files, f)
-				writer := bufio.NewWriter(f)
-				fileWriters[tempFile] = writer
-			}
-			w := fileWriters[tempFile]
-			if _, err = w.WriteString(line + "\n"); err != nil {
-				log.Printf("写入临时文件错误:%v", err)
-			}
-			w.Flush()
-		}
-
-		for _, file := range files {
-			file.Close()
+	for {
+		select {
+		case filePath := <-fileCh:
+			writeTempFile(filePath)
+		default:
+			return
 		}
 	}
-	keySetCh <- tempkeys
+
 }
 
+// writeTempFile写入临时文件
+func writeTempFile(filePath string) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		log.Printf("打开文件错误:%v", err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	fileWriters := make(map[string]*os.File)
+	tempKeys := make([]string, 0)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		key := line[:3]
+		tempKeys = append(tempKeys, key)
+
+		tempFile := filepath.Join(TempDir, key+".txt")
+
+		f, ok := fileWriters[tempFile]
+
+		fileMu.Lock()
+		if !ok {
+			f, err = os.OpenFile(tempFile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+			if err != nil {
+				continue
+			}
+
+			fileWriters[tempFile] = f
+		}
+
+		if _, err = f.WriteString(line + "\n"); err != nil {
+			log.Printf("写入临时文件错误:%v", err)
+		}
+		fileMu.Unlock()
+	}
+
+	for _, file := range fileWriters {
+		file.Close()
+	}
+
+	mu.Lock()
+	for _, key := range tempKeys {
+		keySlice = append(keySlice, key)
+	}
+	mu.Unlock()
+}
+
+// unique 去重
 func unique(strs []string) []string {
 	seen := make(map[string]bool)
 	result := []string{}
