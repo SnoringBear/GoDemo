@@ -16,3 +16,11 @@ func TestMap01(t *testing.T) {
 	}
 	// ok这种使用方法,还可以用于通道接受数值   s,ok<-ch
 }
+
+func TestMap02(t *testing.T) {
+	m := map[int]int{
+		1: 1,
+		2: 2,
+	}
+	delete(m, 3)
+}

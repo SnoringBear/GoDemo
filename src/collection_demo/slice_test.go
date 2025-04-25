@@ -27,3 +27,12 @@ func TestSlice03(t *testing.T) {
 	slice2 := slice1[:2:4]
 	fmt.Println(slice2)
 }
+
+func TestSlice04(t *testing.T) {
+	s := []int{1, 2, 3}
+	for i, v := range s {
+		fmt.Println(i, v)
+		s = append(s, i+10) // 可能会触发扩容
+	}
+	fmt.Println("最终切片:", s)
+}
