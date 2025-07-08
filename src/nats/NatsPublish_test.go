@@ -15,7 +15,7 @@ func TestNatsPub01(t *testing.T) {
 	defer nc.Close()
 
 	// 发布消息到主题
-	subject := "example"
+	subject := "updates"
 	message := []byte("Hello NATS!")
 
 	err = nc.Publish(subject, message)
