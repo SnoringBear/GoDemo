@@ -1,0 +1,1 @@
+{"appId":"SampleApp","cluster":"default","namespaceName":"application","releaseKey":"20250724153419-1dc50d9ae8ba6593","configurations":{"aa":"4000","go.batch.feature.enabled":"true","go.batch.key1":"go_value_1","go.batch.key2":"go_value_2","timeout":"100"}}
