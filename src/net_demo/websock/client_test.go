@@ -25,7 +25,11 @@ func TestWeb02(t *testing.T) {
 	}(conn)
 
 	// 发送消息给服务器
-	err = conn.WriteMessage(websocket.TextMessage, []byte("Hello, Server!"))
+	err = conn.WriteMessage(websocket.TextMessage, []byte(`{
+		"Hello": {
+			"Name": "leaf"
+		}
+	}`))
 	if err != nil {
 		log.Println("Write error:", err)
 		return
