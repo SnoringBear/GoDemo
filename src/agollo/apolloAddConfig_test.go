@@ -32,36 +32,33 @@ func TestAdd01(t *testing.T) {
 		"go.batch.feature.enabled": "true",
 	}
 
-	fmt.Println("Starting to add configs in batch...")
+	fmt.Println("开始批量添加配置...")
 
 	var hasError bool
 	// 2. 循环调用新增接口
 	for key, value := range configsToAdd {
 		if err := apolloClient.CreateConfigItem(key, value); err != nil {
-			fmt.Printf("Error: %v\n", err)
+			fmt.Printf("添加配置出错: %v\n", err)
 			hasError = true
 		}
 	}
 
 	if hasError {
-		fmt.Println("\nFinished batch adding process with one or more errors.")
-		// 根据业务需求决定是否在部分失败时继续发布
-		// return
+		fmt.Println("\n批量添加完成，但存在部分错误")
 	} else {
-		fmt.Println("\nAll configs added successfully.")
+		fmt.Println("\n所有配置添加成功")
 	}
-
 }
 
 func NewApolloConfig() *ApolloConfig {
 	return &ApolloConfig{
-		PortalURL:      "http://localhost:8070",                                            // 替换为您的 Apollo Portal 地址
-		Token:          "948c81e4cfd942a0012cb80a9a817ea996fb73421faf0de129ee996ae7b2d5d9", // 替换为您的 Token
-		AppID:          "SampleApp",                                                        // 替换您的 App ID
+		PortalURL:      "http://localhost:8070",
+		Token:          "948c81e4cfd942a0012cb80a9a817ea996fb73421faf0de129ee996ae7b2d5d9",
+		AppID:          "SampleApp",
 		Env:            "LOCAL",
 		ClusterName:    "default",
 		Namespace:      "application",
-		Operator:       "apollo", // 操作人标识
+		Operator:       "apollo",
 		RequestTimeout: 5 * time.Second,
 	}
 }
@@ -79,12 +76,12 @@ func (c *ApolloConfig) CreateConfigItem(key, value string) error {
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("failed to marshal request body: %w", err)
+		return fmt.Errorf("请求体序列化失败: %w", err)
 	}
 
 	req, err := http.NewRequest(http.MethodPost, apiURL, bytes.NewBuffer(body))
 	if err != nil {
-		return fmt.Errorf("failed to create http request: %w", err)
+		return fmt.Errorf("创建HTTP请求失败: %w", err)
 	}
 
 	req.Header.Set("Authorization", c.Token)
@@ -93,16 +90,15 @@ func (c *ApolloConfig) CreateConfigItem(key, value string) error {
 	client := &http.Client{Timeout: c.RequestTimeout}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
+		return fmt.Errorf("请求发送失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		fmt.Printf("Successfully added config: %s = %s\n", key, value)
+		fmt.Printf("配置添加成功: %s = %s\n", key, value)
 		return nil
 	}
 
-	// 读取响应体以获取更多错误信息
 	respBody, _ := io.ReadAll(resp.Body)
-	return fmt.Errorf("failed to add config item '%s'. Status: %s, Body: %s", key, resp.Status, string(respBody))
+	return fmt.Errorf("添加配置项'%s'失败. 状态码: %s, 响应体: %s", key, resp.Status, string(respBody))
 }
