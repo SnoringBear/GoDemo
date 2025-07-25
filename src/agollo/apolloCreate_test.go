@@ -5,38 +5,43 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
-// Apollo Portal 的地址
+// Apollo Portal地址
 const apolloPortalAddress = "http://localhost:8070"
 
-// 要操作的 Apollo App ID
+// Apollo App ID
 const appId = "SampleApp"
 
-// 要操作的环境 (DEV, FAT, UAT, PRO...)
+// 环境 (DEV, FAT, UAT, PRO...)
 const env = "LOCAL"
 
-// 要操作的集群名称 (通常是 default)
+// 集群名称 (通常是 default)
 const clusterName = "default"
 
 // Apollo 开放平台授权的 Token
-const token = "948c81e4cfd942a0012cb80a9a817ea996fb73421faf0de129ee996ae7b2d5d9"
+// const token = "948c81e4cfd942a0012cb80a9a817ea996fb73421faf0de129ee996ae7b2d5d9"
+const token = "de989eb59f65835314f436add00c6cbbbe6388c4c6527a4b6fb94d244861cf20"
 
-// 操作人（显示在 Apollo 操作历史上）
+// 操作人
 const operator = "apollo"
 
 // 存放配置文件的本地文件夹路径
 const configFolderPath = "../Tables"
 
-// --- 配置结束 ---
+const portalAddress = "http://localhost:8070"
+
+var wg sync.WaitGroup
 
 // 创建或更新配置项 API 的请求体结构
 type CreateOrUpdateItemRequest struct {
@@ -46,14 +51,7 @@ type CreateOrUpdateItemRequest struct {
 	DataChangeCreatedBy string `json:"dataChangeCreatedBy"`
 }
 
-type Item struct {
-	ID          int                    `json:"id"`
-	OtherFields map[string]interface{} `json:"-"`
-}
-
 func TestCreate01(t *testing.T) {
-	portalAddress := "http://localhost:8070"
-
 	// 1. 读取文件夹中的所有文件
 	files, err := os.ReadDir(configFolderPath)
 	if err != nil {
@@ -67,139 +65,82 @@ func TestCreate01(t *testing.T) {
 		if file.IsDir() {
 			continue
 		}
-
-		fileName := file.Name()
-		// 将文件名作为 namespace 名称
-		// 通常 namespace 不包含文件扩展名，这里我们去掉它
-		namespaceName := strings.TrimSuffix(fileName, filepath.Ext(fileName))
-		namespaceName = strings.TrimPrefix(namespaceName, "Table_")
-
-		log.Printf("--- 正在处理文件: %s, 准备创建 Namespace: %s ---", fileName, namespaceName)
-
-		privateNamespace := Namespace{
-			Name:                namespaceName,
-			AppID:               "SampleApp",
-			Format:              "properties",
-			IsPublic:            false,
-			Comment:             "This is a private namespace for my application.",
-			DataChangeCreatedBy: operator,
-		}
-
-		// 2. 为每个文件创建一个私有 Namespace
-		err := CreateApolloNamespace(portalAddress, token, privateNamespace)
-		if err != nil {
-			// 如果 Namespace 已存在，API会返回4xx错误，这里我们选择继续而不是中止
-			log.Printf("创建 Namespace '%s' 失败或已存在: %v", namespaceName, err)
-		} else {
-			log.Printf("成功创建私有 Namespace: %s", namespaceName)
-		}
-
-		// 3. 读取文件内容
-		filePath := filepath.Join(configFolderPath, fileName)
-		contentBytes, err := os.ReadFile(filePath)
-		if err != nil {
-			log.Printf("读取文件 '%s' 内容失败: %v", filePath, err)
-			continue // 继续处理下一个文件
-		}
-		fileContent := string(contentBytes)
-
-		var stringSlice []map[string]interface{}
-		err = json.Unmarshal([]byte(fileContent), &stringSlice)
-		if err != nil {
-			log.Printf("反序列化失败: %v", err)
-			continue
-		}
-
-		for _, item := range stringSlice {
-			i := item["ID"]
-			marshal, err := json.Marshal(item)
-			if err != nil {
-				continue
-			}
-			key, ok := i.(float64)
-			if !ok {
-				continue
-			}
-			// 4. 将文件内容作为 key 为 "config" 的配置项添加
-			err = createOrUpdateConfigItem2(namespaceName, string(marshal), strconv.FormatFloat(key, 'f', -1, 64))
-			if err != nil {
-				log.Printf("为 Namespace '%s' 添加配置项失败: %v", namespaceName, err)
-			} else {
-				log.Printf("成功为 Namespace '%s' 添加 key='config' 的配置项", namespaceName)
-			}
-		}
-
+		go DealConfigFile(file)
 	}
 
+	wg.Wait()
 	log.Println("--- 所有文件处理完毕 ---")
 }
 
-// UnmarshalJSON 的实现
-func (i *Item) UnmarshalJSON(data []byte) error {
-	var tempMap map[string]interface{}
-	if err := json.Unmarshal(data, &tempMap); err != nil {
-		return err
-	}
+// DealConfigFile 处理配置文件
+func DealConfigFile(file fs.DirEntry) {
+	wg.Add(1)
+	defer wg.Done()
 
-	if idVal, ok := tempMap["id"]; ok {
-		if idFloat, ok := idVal.(float64); ok {
-			i.ID = int(idFloat)
-		}
-	}
+	fileName := file.Name()
+	namespaceName := strings.TrimSuffix(fileName, filepath.Ext(fileName))
+	namespaceName = strings.TrimPrefix(namespaceName, "Table_")
 
-	delete(tempMap, "id")
-	i.OtherFields = tempMap
-	return nil
-}
+	log.Printf("--- 正在处理文件: %s, 准备创建 Namespace: %s ---", fileName, namespaceName)
 
-func UnmarshalJsonArray(data []byte) {
-
-}
-
-// createOrUpdateConfigItem 调用 Apollo API 在指定 Namespace 中创建或更新一个配置项
-func createOrUpdateConfigItem(namespaceName, content string) error {
-	// API 端点: /openapi/v1/apps/{appId}/clusters/{clusterName}/namespaces/{namespaceName}/items
-	url := fmt.Sprintf("%s/openapi/v1/envs/%s/apps/%s/clusters/%s/namespaces/%s/items",
-		apolloPortalAddress, env, appId, clusterName, namespaceName)
-
-	reqBody := CreateOrUpdateItemRequest{
-		Key:                 "config", // Key 固定为 "config"
-		Value:               content,  // Value 是文件内容
-		Comment:             fmt.Sprintf("Updated by Go script on %s", time.Now().Format("2006-01-02")),
+	privateNamespace := Namespace{
+		Name:                namespaceName,
+		AppID:               "SampleApp",
+		Format:              "properties",
+		IsPublic:            false,
+		Comment:             "This is a private namespace for my application.",
 		DataChangeCreatedBy: operator,
 	}
 
-	jsonBytes, err := json.Marshal(reqBody)
+	// 2. 为每个文件创建一个私有 Namespace
+	err := CreateApolloNamespace(portalAddress, token, privateNamespace)
 	if err != nil {
-		return fmt.Errorf("序列化配置项请求失败: %w", err)
+		log.Printf("创建 Namespace '%s' 失败或已存在: %v", namespaceName, err)
+	} else {
+		log.Printf("成功创建私有 Namespace: %s", namespaceName)
 	}
 
-	// 使用 PUT 方法可以实现"创建或更新"的效果
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBytes))
+	// 3. 读取文件内容
+	filePath := filepath.Join(configFolderPath, fileName)
+	contentBytes, err := os.ReadFile(filePath)
 	if err != nil {
-		return fmt.Errorf("创建 HTTP 请求失败: %w", err)
+		log.Printf("读取文件 '%s' 内容失败: %v", filePath, err) // 继续处理下一个文件
+		return
 	}
+	fileContent := string(contentBytes)
 
-	req.Header.Set("Authorization", token)
-	req.Header.Set("Content-Type", "application/json;charset=UTF-8")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	var stringSlice []map[string]interface{}
+	err = json.Unmarshal([]byte(fileContent), &stringSlice)
 	if err != nil {
-		return fmt.Errorf("发送 HTTP 请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API 返回错误状态码 %d: %s", resp.StatusCode, string(body))
+		log.Printf("反序列化失败: %v", err)
+		return
 	}
 
-	return nil
+	for _, item := range stringSlice {
+
+		i := item["ID"]
+		if i == nil {
+			i = item["Id"]
+		}
+		marshal, err := json.Marshal(item)
+		if err != nil {
+			continue
+		}
+		key, ok := i.(float64)
+		if !ok {
+			continue
+		}
+
+		// 4. 将文件内容作为 key 为 "config" 的配置项添加
+		createOrUpdateConfigItem2(namespaceName, string(marshal), strconv.FormatFloat(key, 'f', -1, 64))
+	}
 }
 
 // createOrUpdateConfigItem 调用 Apollo API 在指定 Namespace 中创建或更新一个配置项
-func createOrUpdateConfigItem2(namespaceName, content string, key string) error {
+func createOrUpdateConfigItem2(namespaceName, content string, key string) {
+	//wg.Add(1)
+	//defer wg.Done()
+
 	// API 端点: /openapi/v1/apps/{appId}/clusters/{clusterName}/namespaces/{namespaceName}/items
 	url := fmt.Sprintf("%s/openapi/v1/envs/%s/apps/%s/clusters/%s/namespaces/%s/items",
 		apolloPortalAddress, env, appId, clusterName, namespaceName)
@@ -211,15 +152,20 @@ func createOrUpdateConfigItem2(namespaceName, content string, key string) error 
 		DataChangeCreatedBy: operator,
 	}
 
+	var err error
+
 	jsonBytes, err := json.Marshal(reqBody)
 	if err != nil {
-		return fmt.Errorf("序列化配置项请求失败: %w", err)
+		err = fmt.Errorf("序列化配置项请求失败: %w", err)
+		log.Printf("为 Namespace '%s' 添加配置项失败: %v", namespaceName, err)
+		return
 	}
 
-	// 使用 PUT 方法可以实现"创建或更新"的效果
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBytes))
 	if err != nil {
-		return fmt.Errorf("创建 HTTP 请求失败: %w", err)
+		err = fmt.Errorf("创建 HTTP 请求失败: %w", err)
+		log.Printf("为 Namespace '%s' 添加配置项失败: %v", namespaceName, err)
+		return
 	}
 
 	req.Header.Set("Authorization", token)
@@ -227,15 +173,19 @@ func createOrUpdateConfigItem2(namespaceName, content string, key string) error 
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
+
 	if err != nil {
-		return fmt.Errorf("发送 HTTP 请求失败: %w", err)
+		err = fmt.Errorf("发送 HTTP 请求失败: %w", err)
+		log.Printf("为 Namespace '%s' 添加配置项失败: %v", namespaceName, err)
+		return
 	}
+
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API 返回错误状态码 %d: %s", resp.StatusCode, string(body))
+		err = fmt.Errorf("API 返回错误状态码 %d: %s", resp.StatusCode, string(body))
+		log.Printf("为 Namespace '%s' 添加配置项失败: %v", namespaceName, err)
+		return
 	}
-
-	return nil
 }

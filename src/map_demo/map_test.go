@@ -22,5 +22,6 @@ func TestMap02(t *testing.T) {
 		1: 1,
 		2: 2,
 	}
+	m[4] = 4
 	delete(m, 3)
 }
