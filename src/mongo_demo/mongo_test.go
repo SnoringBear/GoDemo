@@ -205,6 +205,9 @@ func updateDocument(collection *mongo.Collection, id primitive.ObjectID) error {
 func deleteDocument(collection *mongo.Collection, id primitive.ObjectID) error {
 	// 设置删除条件
 	filter := bson.D{{"_id", id}}
+	// bson.D{{"foo", "bar"}, {"hello", "world"}, {"pi", 3.14159}}
+	// bson.A{"bar", "world", 3.14159, bson.D{{"qux", 12345}}}
+	// bson.M{"foo": "bar", "hello": "world", "pi": 3.14159}
 
 	// 执行删除
 	result, err := collection.DeleteOne(context.TODO(), filter)
